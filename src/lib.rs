@@ -1,8 +1,8 @@
 //! # homectl
 //!
 //! homectl is a library for controlling various smart home devices.
-//!
-
+#![recursion_limit="128"]
+#![feature(custom_attribute)]
 #![feature(clamp)]
 pub mod prot {
 //! This module contains traits defining capabilities smart home devices can
@@ -21,7 +21,7 @@ pub mod prot {
             where Self: std::marker::Sized;
 
         /// Attempts to find devices on LAN.
-        fn discover_devices() -> Result<Option<Vec<Self>>>
+        fn discover() -> Result<Option<Vec<Self>>>
             where Self: std::marker::Sized;
 
         /// Attempts to update internal state.
@@ -49,7 +49,7 @@ pub mod prot {
     }
 
     /// Smart home device that has RGB capability.
-    pub trait Rgb {
+    pub trait Rgb: SmartDevice {
         /// Attempts to set color and brightness.
         ///
         /// `brightness` is clamped to [0, 1] and corresponds to value in HSV
@@ -90,7 +90,7 @@ pub mod prot {
     }
 
     /// Smart home device that has brightness adjust capability.
-    pub trait Mono {
+    pub trait Mono: SmartDevice {
         /// Attempts to set brightness.
         ///
         /// `brightness` is clamped to [0, 1].
@@ -106,7 +106,7 @@ pub mod prot {
 
     /// Smart home Device that has Correlated Color Temperature adjust
     /// capability.
-    pub trait Cct {
+    pub trait Cct: SmartDevice {
         /// Attempts to set color temperature and brightness.
         fn cct_set(&mut self, kelvin: u16, brightness: f32) -> Result<()>;
 
@@ -181,7 +181,7 @@ pub mod prot {
 
         mod op {
             pub const SET_POWER: u8 = 0x71;
-            pub const SET_COLOR: u8 = 0x31; // 41?
+            pub const SET_COLOR: u8 = 0x31;
             pub const GET_STATE: u8 = 0x81;
         }
 
@@ -263,7 +263,7 @@ pub mod prot {
                 }
             }
 
-            fn discover_devices() -> Result<Option<Vec<LedNet>>> {
+            fn discover() -> Result<Option<Vec<LedNet>>> {
                 let socket = UdpSocket::bind(
                     SocketAddr::from((Ipv4Addr::UNSPECIFIED, DISCO_PORT))
                 )?;
@@ -396,7 +396,7 @@ pub mod prot {
             }
 
             fn name(&self) -> String {
-                "LEDNET (".to_owned() + self.model + ")"
+                "LEDNET:".to_owned() + self.model
             }
         }
 
@@ -637,16 +637,16 @@ pub mod prot {
 }
 
 pub mod mult {
-//! This module is an assortment of traits enums and functions that provide a
-//! unified interface to control various smart home devices without the need to
+//! This module is an assortment of traits and enums that provide a unified
+//! interface to control various smart home devices without the need to
 //! explicitly handle each one.
 //!
 //! # Example
 //!
 //! ```
-//! use mult::Command;
+//! use mult::{Command, Device};
 //!
-//! if let Ok(Some(mut devs)) = mult::discover_devices() {
+//! if let Ok(Some(mut devs)) = Device::discover() {
 //!     for dev in devs {
 //!         dev.exec(&Command::On)?;
 //!     }
@@ -662,8 +662,18 @@ pub mod mult {
     use std::net::IpAddr;
     use color_processing::Color;
 
+    use homectl_macros::Dev;
+
+    type Result = std::result::Result<Option<Response>, Error>;
     type Brightness = f32;
     type Kelvin = u16;
+
+    /// Represents a smart home device.
+    #[derive(Debug, Dev)]
+    pub enum Device {
+        #[homectl(cmd = "RgbCommands", cmd = "CctCommands")]
+        LedNet(LedNet),
+    }
 
     #[derive(Debug)]
     pub enum Error {
@@ -699,8 +709,8 @@ pub mod mult {
         Port(u16),
     }
 
-    impl std::fmt::Display for Response {
-        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    impl fmt::Display for Response {
+        fn fmt(&self, f: &mut std::fmt::Formatter) -> fmt::Result {
             match self {
                 Response::Color(c)       => write!(f, "{}", c.to_rgb_string()),
                 Response::Brightness(b)  => write!(f, "{}", (100.0 * b) as u8),
@@ -742,106 +752,24 @@ pub mod mult {
         MonoGet
     }
 
-    /// Represents a smart home device.
-    #[derive(Debug)]
-    pub enum Device {
-        LedNet(LedNet),
-    }
-
-    // TODO: proc macro 
-    impl Device {
-        /// Attempts to execute a command.
-        ///
-        /// If the command supplied is not supported by the device, returns
-        /// Error::CommandNotSupported.
-        pub fn exec(
-            &mut self,
-            command: &Command
-        ) -> Result<Option<Response>, Error> {
-            let results;
-            match self {
-                Device::LedNet(dev) => {
-                    results = vec![
-                        (dev as &mut dyn SmartDeviceCommands).exec(command),
-                        (dev as &mut dyn RgbCommands).exec(command),
-                        (dev as &mut dyn CctCommands).exec(command),
-                    ];
-                },
-            }
-
-            if let Some(result) = results.into_iter().find(|e| e.is_ok()) {
-                result
-            } else {
-                Err(Error::CommandNotSupported)
-            }
-        }
-
-        /// Returns a brief description of the device.
-        pub fn description(&self) -> String {
-            match self {
-                Device::LedNet(dev) => dev.name() + " @ " + &dev.address().to_string(),
-            }
-        }
-    }
-
-    impl std::fmt::Display for Device {
-        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-            match self {
-                Device::LedNet(d)   => d.fmt(f),
-            }
-        }
-    }
-
-    /// Attempts to find devices on LAN.
-    pub fn discover_devices() -> io::Result<Option<Vec<Device>>> {
-        let mut ret: Vec<Device> = Vec::new();
-
-        if let Some(devs) = LedNet::discover_devices()? {
-            ret.append(&mut devs.into_iter().map(|d| Device::LedNet(d)).collect());
-        }
-
-        if ret.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(ret))
-        }
-    }
-
-    /// Attempts to construct a device from IP address.
-    pub fn from_address(addr: &IpAddr) -> io::Result<Option<Device>> {
-        if let Some(dev) = LedNet::from_address(&addr)? {
-            Ok(Some(Device::LedNet(dev)))
-        } else {
-            Ok(None)
-        }
-
-    }
-
     trait SmartDeviceCommands {
-        fn exec(&mut self, command: &Command)
-            -> Result<Option<Response>, Error>;
+        fn exec(&mut self, command: &Command) -> Result;
     }
 
     trait RgbCommands {
-        fn exec(&mut self, command: &Command)
-            -> Result<Option<Response>, Error>;
+        fn exec(&mut self, command: &Command) -> Result;
     }
 
     trait CctCommands {
-        fn exec(&mut self, command: &Command)
-            -> Result<Option<Response>, Error>;
+        fn exec(&mut self, command: &Command) -> Result;
     }
 
     trait MonoCommands {
-        fn exec(&mut self, command: &Command)
-            -> Result<Option<Response>, Error>;
+        fn exec(&mut self, command: &Command) -> Result;
     }
 
     impl<T> SmartDeviceCommands for T where T: SmartDevice {
-        fn exec(
-            &mut self,
-            command: &Command
-        ) -> Result<Option<Response>, Error> {
+        fn exec(&mut self, command: &Command) -> Result {
             match command {
                 Command::On => {
                     self.set_on(true)?;
@@ -867,10 +795,7 @@ pub mod mult {
     }
 
     impl<T> RgbCommands for T where T: Rgb {
-        fn exec(
-            &mut self,
-            command: &Command
-        ) -> Result<Option<Response>, Error> {
+        fn exec(&mut self, command: &Command) -> Result {
             match command {
                 Command::RgbSet(c, b) => {
                     self.rgb_set(c, *b)?;
@@ -903,10 +828,7 @@ pub mod mult {
     }
 
     impl<T> CctCommands for T where T: Cct {
-        fn exec(
-            &mut self,
-            command: &Command
-        ) -> Result<Option<Response>, Error> {
+        fn exec(&mut self, command: &Command) -> Result {
             match command {
                 Command::CctSet(k, b) => {
                     self.cct_set(*k, *b)?;
@@ -932,10 +854,7 @@ pub mod mult {
     }
 
     impl<T> MonoCommands for T where T: Mono {
-        fn exec(
-            &mut self,
-            command: &Command
-        ) -> Result<Option<Response>, Error> {
+        fn exec(&mut self, command: &Command) -> Result {
             match command {
                 Command::MonoSet(b) => {
                     self.mono_set(*b)?;

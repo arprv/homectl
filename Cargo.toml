@@ -8,6 +8,7 @@ edition = "2018"
 color_processing = "0.3"
 pnet_datalink = "0.22.0"
 structopt = { version = "0.2", default-features = false }
+homectl_macros = {path = "homectl_macros", version = "0.1.0" }
 
 [profile.dev]
 debug = true
@@ -16,3 +17,5 @@ debug = true
 opt-level = "z"
 debug = false
 lto = true
+
+[workspace]

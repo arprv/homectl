@@ -3,7 +3,7 @@
 use std::{process, net::IpAddr};
 use color_processing::Color;
 use structopt::StructOpt;
-use homectl::mult::{self, Command};
+use homectl::mult::{Command, Device};
 
 #[derive(StructOpt)]
 #[structopt(
@@ -275,7 +275,7 @@ fn main() {
 
     // Discover devices
     if opt.discover {
-        match mult::discover_devices() {
+        match Device::discover() {
             Ok(maybe_devs) => {
                 if let Some(mut ds) = maybe_devs {
                     devs.append(&mut ds);
@@ -291,7 +291,7 @@ fn main() {
     // Connect directly
     } else {
         for addr in opt.addr {
-            match mult::from_address(&addr) {
+            match Device::from_address(&addr) {
                 Ok(maybe_dev) => {
                     if let Some(dev) = maybe_dev {
                         devs.push(dev);
