@@ -86,7 +86,6 @@ pub mod prot {
         /// should first be called to assure the values returned by getters are
         /// accurate.
         fn rgb_exact(&self) -> Color;
-        //fn rgb_temperature(&self) -> u16;
     }
 
     /// Smart home device that has brightness adjust capability.
@@ -662,14 +661,34 @@ pub mod mult {
     use std::net::IpAddr;
     use color_processing::Color;
 
-    use homectl_macros::Dev;
+    use homectl_macros::Commandable;
 
-    type Result = std::result::Result<Option<Response>, Error>;
+    type ExecResult = std::result::Result<Option<Response>, Error>;
     type Brightness = f32;
     type Kelvin = u16;
 
+    /// Trait allowing multiple devices to be controlled via commands.
+    ///
+    /// Should only be implemented using `#[derive(Commandable)]`
+    pub trait Commandable {
+        /// Attempts to find devices on LAN.
+        fn discover() -> Result<Option<Vec<Self>>, io::Error> 
+            where Self: std::marker::Sized;
+
+        /// Attempts to construct a variant from IP address.
+        fn from_address(addr: &IpAddr) -> Result<Option<Self>, io::Error>
+            where Self: std::marker::Sized;
+
+        /// Attempts to execute a command. If the variant does not support a
+        /// given command `CommandNotSupported` is returned.
+        fn exec(&mut self, command: &Command) -> ExecResult;
+
+        /// Returns a brief description of the device.
+        fn description(&self) -> String;
+    }
+
     /// Represents a smart home device.
-    #[derive(Debug, Dev)]
+    #[derive(Debug, Commandable)]
     pub enum Device {
         #[homectl(cmd = "RgbCommands", cmd = "CctCommands")]
         LedNet(LedNet),
@@ -753,23 +772,23 @@ pub mod mult {
     }
 
     trait SmartDeviceCommands {
-        fn exec(&mut self, command: &Command) -> Result;
+        fn exec(&mut self, command: &Command) -> ExecResult;
     }
 
     trait RgbCommands {
-        fn exec(&mut self, command: &Command) -> Result;
+        fn exec(&mut self, command: &Command) -> ExecResult;
     }
 
     trait CctCommands {
-        fn exec(&mut self, command: &Command) -> Result;
+        fn exec(&mut self, command: &Command) -> ExecResult;
     }
 
     trait MonoCommands {
-        fn exec(&mut self, command: &Command) -> Result;
+        fn exec(&mut self, command: &Command) -> ExecResult;
     }
 
     impl<T> SmartDeviceCommands for T where T: SmartDevice {
-        fn exec(&mut self, command: &Command) -> Result {
+        fn exec(&mut self, command: &Command) -> ExecResult {
             match command {
                 Command::On => {
                     self.set_on(true)?;
@@ -795,7 +814,7 @@ pub mod mult {
     }
 
     impl<T> RgbCommands for T where T: Rgb {
-        fn exec(&mut self, command: &Command) -> Result {
+        fn exec(&mut self, command: &Command) -> ExecResult {
             match command {
                 Command::RgbSet(c, b) => {
                     self.rgb_set(c, *b)?;
@@ -828,7 +847,7 @@ pub mod mult {
     }
 
     impl<T> CctCommands for T where T: Cct {
-        fn exec(&mut self, command: &Command) -> Result {
+        fn exec(&mut self, command: &Command) -> ExecResult {
             match command {
                 Command::CctSet(k, b) => {
                     self.cct_set(*k, *b)?;
@@ -854,7 +873,7 @@ pub mod mult {
     }
 
     impl<T> MonoCommands for T where T: Mono {
-        fn exec(&mut self, command: &Command) -> Result {
+        fn exec(&mut self, command: &Command) -> ExecResult {
             match command {
                 Command::MonoSet(b) => {
                     self.mono_set(*b)?;

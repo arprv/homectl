@@ -3,7 +3,7 @@
 use std::{process, net::IpAddr};
 use color_processing::Color;
 use structopt::StructOpt;
-use homectl::mult::{Command, Device};
+use homectl::mult::{Commandable, Command, Device};
 
 #[derive(StructOpt)]
 #[structopt(

@@ -40,7 +40,7 @@ fn extract_prop(meta: &[Meta], attr: &str, prop: &str) -> Vec<String> {
         .collect()
 }
 
-#[proc_macro_derive(Dev)]
+#[proc_macro_derive(Commandable)]
 pub fn dev_derive(input: TokenStream) -> TokenStream {
     // Command traits that must be implemented for all variants
     const DEFAULT_CMDS: [&str; 1] = ["SmartDeviceCommands"];
@@ -51,7 +51,7 @@ pub fn dev_derive(input: TokenStream) -> TokenStream {
     // Make sure we're dealing with an enum
     let vars = match &input.data {
         Data::Enum(v) => &v.variants,
-        _ => panic!("Dev can only be applied to enums")
+        _ => panic!("Commandable can only be derived by enums")
     };
 
     let mut var_paths = Vec::new();
@@ -117,7 +117,7 @@ pub fn dev_derive(input: TokenStream) -> TokenStream {
         let var_paths = var_paths.clone();
         let dev_paths = dev_paths.clone();
         quote! {
-            pub fn discover() ->::std::io::Result<
+            fn discover() ->::std::io::Result<
                 ::std::option::Option<::std::vec::Vec<#name>>
             > {
                 use ::std::vec::Vec;
@@ -143,7 +143,7 @@ pub fn dev_derive(input: TokenStream) -> TokenStream {
     let from_address = {
         let var_paths = var_paths.clone();
         quote! {
-            pub fn from_address(addr: &::std::net::IpAddr) -> ::std::io::Result<
+            fn from_address(addr: &::std::net::IpAddr) -> ::std::io::Result<
                 ::std::option::Option<#name>
             > {
                 #(if let Some(dev) = <#dev_paths>::from_address(&addr)? {
@@ -174,7 +174,7 @@ pub fn dev_derive(input: TokenStream) -> TokenStream {
 
     let exec = {
         quote! {
-            pub fn exec(&mut self, command: &Command) -> Result {
+            fn exec(&mut self, command: &Command) -> ExecResult {
                 match self {
                     #(#exec_arms),*
                 }
@@ -188,7 +188,7 @@ pub fn dev_derive(input: TokenStream) -> TokenStream {
 
     let description = {
         quote! {
-            pub fn description(&self) -> String {
+            fn description(&self) -> String {
                 match self {
                     #(#var_paths(d) => {
                         d.name() + " @ " + &d.address().to_string()
@@ -199,7 +199,7 @@ pub fn dev_derive(input: TokenStream) -> TokenStream {
     };
 
     TokenStream::from(quote! {
-        impl #name {
+        impl Commandable for #name {
             #discover
             #from_address
             #exec
