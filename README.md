@@ -1,5 +1,5 @@
 # homectl
-A smart home device client written in rust. This project is at it's very early stages.
+Control your smart lights, smart plugs, etc. This project is at it's very early stages.
 
 ## Supported Devices
 ### LEDNET HF-LPB100-ZJ200 (LED controller)
